@@ -1,47 +1,34 @@
 {
-  "name": "eth-trezor-keyring",
-  "version": "0.4.0",
-  "description": "A MetaMask compatible keyring, for trezor hardware wallets",
+  "name": "eth-satochip-keyring",
+  "version": "0.1.0",
+  "description": "MetaMask Keyring wrapper on Satochip-Connect site ",
   "main": "index.js",
-  "scripts": {
-    "test": "mocha",
-    "lint": "./node_modules/.bin/eslint . --ext .js",
-    "lint:fix": "./node_modules/.bin/eslint --fix . --ext .js"
-  },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/metamask/eth-trezor-keyring.git"
+    "url": "git+https://github.com/toporin/eth-satochip-keyring.git"
   },
-  "keywords": [
-    "ethereum",
-    "keyring",
-    "trezor",
-    "metamask"
-  ],
-  "author": "Bruno Barbieri",
+  "author": "Toporin",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/metamask/eth-trezor-keyring/issues"
+    "url": "https://github.com/toporin/eth-satochip-keyring/issues"
   },
-  "homepage": "https://github.com/metamask/eth-trezor-keyring#readme",
+  "homepage": "https://github.com/toporin/eth-satochip-keyring#readme",
   "dependencies": {
-    "eth-sig-util": "^1.4.2",
-    "ethereumjs-tx": "^1.3.4",
-    "ethereumjs-util": "^5.1.5",
-    "events": "^2.0.0",
-    "hdkey": "0.8.0",
-    "trezor-connect": "^7.0.1"
+    "ethereumjs-util": "^5.1.0",
+    "hdkey": "^1.1.1",
+    "rlp": "^2.0.0"
   },
   "devDependencies": {
-    "assert": "^1.4.1",
-    "babel-eslint": "^8.0.0",
+    "@babel/plugin-transform-runtime": "^7.8.3",
+    "@babel/preset-env": "^7.7.1",
+    "@babel/runtime": "^7.8.7",
+    "@typescript-eslint/parser": "^2.3.0",
+    "babel-jest": "^25.1.0",
     "babel-runtime": "^6.26.0",
-    "chai": "^4.1.2",
-    "chai-spies": "^1.0.0",
-    "eslint": "^5.0.0",
-    "eslint-plugin-chai": "0.0.1",
-    "eslint-plugin-json": "^1.2.0",
-    "eslint-plugin-mocha": "^5.0.0",
-    "mocha": "^5.0.4"
+    "ethereumjs-tx": "^2.1.2",
+    "eslint-plugin-react": "^7.14.3",
+    "gulp": "^4.0.2",
+    "jest": "^25.1.0",
+    "prettier-eslint": "^9.0.0"
   }
 }

@@ -1,122 +1,154 @@
 const { EventEmitter } = require('events')
-const ethUtil = require('ethereumjs-util')
-const Transaction = require('ethereumjs-tx')
 const HDKey = require('hdkey')
-const TrezorConnect = require('trezor-connect').default
+const ethUtil = require('ethereumjs-util')
+const EthereumTx = require('ethereumjs-tx')
+const type = 'Satochip'
 const hdPathString = `m/44'/60'/0'/0`
-const keyringType = 'Trezor Hardware'
 const pathBase = 'm'
+const BRIDGE_URL = 'https://toporin.github.io/Satochip-Connect/'
+//const BRIDGE_URL = 'http://localhost:3000'  //satochip-connect test server
 const MAX_INDEX = 1000
-const DELAY_BETWEEN_POPUPS = 1000
-const TREZOR_CONNECT_MANIFEST = {
-  email: 'support@metamask.io',
-  appUrl: 'https://metamask.io',
-}
+const rlp = require('rlp')
 
-class TrezorKeyring extends EventEmitter {
-  constructor (opts = {}) {
+class SatochipKeyring extends EventEmitter {
+  constructor(opts = {}) {
     super()
-    this.type = keyringType
-    this.accounts = []
-    this.hdk = new HDKey()
+    console.warn('In eth-satochip-keyring: SatochipKeyring constructor: START')
+    this.bridgeUrl = null
+    this.type = type
     this.page = 0
     this.perPage = 5
     this.unlockedAccount = 0
+    this.hdk = new HDKey()
     this.paths = {}
+    this.iframe = null
     this.deserialize(opts)
-    TrezorConnect.manifest(TREZOR_CONNECT_MANIFEST)
+    this._setupIframe()
+    console.warn('In eth-satochip-keyring: SatochipKeyring constructor: END')
   }
 
-  serialize () {
+  serialize() {
+    console.warn('In eth-satochip-keyring: serialize(): START')
     return Promise.resolve({
       hdPath: this.hdPath,
       accounts: this.accounts,
-      page: this.page,
-      paths: this.paths,
-      perPage: this.perPage,
-      unlockedAccount: this.unlockedAccount,
+      bridgeUrl: this.bridgeUrl,
+      parentPublicKey: this.hdk.publicKey.toString('hex'),
+      parentChainCode: this.hdk.chainCode.toString('hex'),
+      page: this.page
     })
   }
 
-  deserialize (opts = {}) {
+  deserialize(opts = {}) {
+    console.warn('In eth-satochip-keyring: deserialize(): START')
     this.hdPath = opts.hdPath || hdPathString
+    this.bridgeUrl = opts.bridgeUrl || BRIDGE_URL
     this.accounts = opts.accounts || []
     this.page = opts.page || 0
-    this.perPage = opts.perPage || 5
+    if (opts.parentPublicKey) this.hdk.publicKey = Buffer.from(opts.parentPublicKey, 'hex')
+    if (opts.parentChainCode) this.hdk.chainCode = Buffer.from(opts.parentChainCode, 'hex')
+    console.warn('In eth-satochip-keyring: deserialize(): END')
     return Promise.resolve()
   }
+  
+/*   // TODO merge with isUnlocked()
+  hasAccountKey() {
+    console.warn('In eth-satochip-keyring: hasAccountKey(): START')
+    const result = !!(this.hdk && this.hdk.publicKey)
+    console.warn('In eth-satochip-keyring: hasAccountKey: result:', result)
+    console.warn('In eth-satochip-keyring: hasAccountKey(): RETURN')
+    return result
+  } */
 
-  isUnlocked () {
-    return !!(this.hdk && this.hdk.publicKey)
-  }
-
-  unlock () {
-    if (this.isUnlocked()) return Promise.resolve('already unlocked')
-    return new Promise((resolve, reject) => {
-      TrezorConnect.getPublicKey({
-          path: this.hdPath,
-          coin: 'ETH',
-        }).then(response => {
-          if (response.success) {
-            this.hdk.publicKey = new Buffer(response.payload.publicKey, 'hex')
-            this.hdk.chainCode = new Buffer(response.payload.chainCode, 'hex')
-            resolve('just unlocked')
-          } else {
-            reject(new Error(response.payload && response.payload.error || 'Unknown error'))
-          }
-        }).catch(e => {
-          reject(new Error(e && e.toString() || 'Unknown error'))
-        })
-    })
-  }
-
-  setAccountToUnlock (index) {
+  setAccountToUnlock(index) {
+    console.warn('In eth-satochip-keyring: setAccountToUnlock(): START')
     this.unlockedAccount = parseInt(index, 10)
   }
 
-  addAccounts (n = 1) {
+  isUnlocked () {
+    console.warn('In eth-satochip-keyring: isUnlocked(): START')
+    return Boolean(this.hdk && this.hdk.publicKey)
+  }
 
+  unlock() {
+    console.warn('In eth-satochip-keyring: unlock(): START')
+    console.warn('In eth-satochip-keyring: unlock(): this.isUnlocked(): ', this.isUnlocked())
+    
+    if (this.isUnlocked()) return Promise.resolve('already unlocked')
+    
+    console.warn('In eth-satochip-keyring: unlock(): RETURN')
+    // unlock: get publickey and chainCodes
+    return new Promise((resolve, reject) => {
+      this._sendMessage(
+        {
+          action: 'satochip-unlock',
+          params: {
+            path: this.hdPath
+          },
+        },
+        ({ success, payload }) => {
+          if (success) {
+            this.hdk.publicKey = Buffer.from(payload.parentPublicKey, 'hex')
+            this.hdk.chainCode = Buffer.from(payload.parentChainCode, 'hex')
+            //const address = this._addressFromPublicKey(Buffer.from(payload.parentPublicKey, 'hex'))
+            //console.warn('In eth-satochip-keyring: unlock(): callback: address: ', address)
+            resolve("just unlocked") //resolve(address) 
+          } else {
+            reject(payload.error || 'Unknown error')
+          }
+        }
+      )
+    })
+  }
+
+  
+  // trezor
+  addAccounts (n = 1) {
     return new Promise((resolve, reject) => {
       this.unlock()
-        .then(_ => {
+        .then(() => {
           const from = this.unlockedAccount
           const to = from + n
-          this.accounts = []
 
           for (let i = from; i < to; i++) {
             const address = this._addressFromIndex(pathBase, i)
-            this.accounts.push(address)
+            if (!this.accounts.includes(address)) {
+              this.accounts.push(address)
+            }
             this.page = 0
           }
           resolve(this.accounts)
         })
-        .catch(e => {
+        .catch((e) => {
           reject(e)
         })
     })
   }
 
-  getFirstPage () {
+  getFirstPage() {
+    console.warn('In eth-satochip-keyring: getFirstPage(): START')
     this.page = 0
     return this.__getPage(1)
   }
 
-  getNextPage () {
+  getNextPage() {
     return this.__getPage(1)
   }
 
-  getPreviousPage () {
+  getPreviousPage() {
     return this.__getPage(-1)
   }
-
+  
   __getPage (increment) {
     this.page += increment
 
-    if (this.page <= 0) { this.page = 1 }
+    if (this.page <= 0) {
+      this.page = 1
+    }
 
     return new Promise((resolve, reject) => {
       this.unlock()
-        .then(_ => {
+        .then(() => {
 
           const from = (this.page - 1) * this.perPage
           const to = from + this.perPage
@@ -125,8 +157,8 @@ class TrezorKeyring extends EventEmitter {
 
           for (let i = from; i < to; i++) {
             const address = this._addressFromIndex(pathBase, i)
-             accounts.push({
-              address: address,
+            accounts.push({
+              address,
               balance: null,
               index: i,
             })
@@ -135,17 +167,19 @@ class TrezorKeyring extends EventEmitter {
           }
           resolve(accounts)
         })
-        .catch(e => {
+        .catch((e) => {
           reject(e)
         })
     })
   }
 
-  getAccounts () {
+  getAccounts() {
+    console.warn('In eth-satochip-keyring: getAccounts(): START')
     return Promise.resolve(this.accounts.slice())
   }
 
-  removeAccount (address) {
+  removeAccount(address) {
+    console.warn('In eth-satochip-keyring: removeAccount(): START')
     if (!this.accounts.map(a => a.toLowerCase()).includes(address.toLowerCase())) {
       throw new Error(`Address ${address} not found in this keyring`)
     }
@@ -153,125 +187,201 @@ class TrezorKeyring extends EventEmitter {
   }
 
   // tx is an instance of the ethereumjs-transaction class.
-  signTransaction (address, tx) {
-
-      return new Promise((resolve, reject) => {
-        this.unlock()
-          .then(status => {
-            setTimeout(_ => {
-              TrezorConnect.ethereumSignTransaction({
-                path: this._pathFromAddress(address),
-                transaction: {
-                  to: this._normalize(tx.to),
-                  value: this._normalize(tx.value),
-                  data: this._normalize(tx.data),
-                  chainId: tx._chainId,
-                  nonce: this._normalize(tx.nonce),
-                  gasLimit: this._normalize(tx.gasLimit),
-                  gasPrice: this._normalize(tx.gasPrice),
-                },
-              }).then(response => {
-                if (response.success) {
-                  tx.v = response.payload.v
-                  tx.r = response.payload.r
-                  tx.s = response.payload.s
-
-                  const signedTx = new Transaction(tx)
-
-                  const addressSignedWith = ethUtil.toChecksumAddress(`0x${signedTx.from.toString('hex')}`)
-                  const correctAddress = ethUtil.toChecksumAddress(address)
-                  if (addressSignedWith !== correctAddress) {
-                    reject(new Error('signature doesnt match the right address'))
-                  }
-
-                  resolve(signedTx)
-                } else {
-                  reject(new Error(response.payload && response.payload.error || 'Unknown error'))
-                }
-
-              }).catch(e => {
-                reject(new Error(e && e.toString() || 'Unknown error'))
-              })
-
-            // This is necessary to avoid popup collision
-            // between the unlock & sign trezor popups
-            }, status === 'just unlocked' ? DELAY_BETWEEN_POPUPS : 0)
-
-          }).catch(e => {
-            reject(new Error(e && e.toString() || 'Unknown error'))
-          })
-      })
-  }
-
-  signMessage (withAccount, data) {
-    return this.signPersonalMessage(withAccount, data)
-  }
-
-  // For personal_sign, we need to prefix the message:
-  signPersonalMessage (withAccount, message) {
+  signTransaction(address, tx) {
+    console.warn('In eth-satochip-keyring: signTransaction: START')
+    console.warn('In eth-satochip-keyring: signTransaction: tx: ', tx)
+    
+    const tx_serialized= tx.serialize().toString('hex')
+    const tx_hash_true= tx.hash(true).toString('hex') // legacy
+    const tx_hash_false= tx.hash(false).toString('hex') // EIP155
+    const chainId= tx._chainId
+    
     return new Promise((resolve, reject) => {
-      this.unlock()
-          .then(status => {
-            setTimeout(_ => {
-              TrezorConnect.ethereumSignMessage({
-                path: this._pathFromAddress(withAccount),
-                message: ethUtil.stripHexPrefix(message),
-                hex: true,
-              }).then(response => {
-                if (response.success) {
-                  if (response.payload.address !== ethUtil.toChecksumAddress(withAccount)) {
-                    reject(new Error('signature doesnt match the right address'))
-                  }
-                  const signature = `0x${response.payload.signature}`
-                  resolve(signature)
-                } else {
-                  reject(new Error(response.payload && response.payload.error || 'Unknown error'))
-                }
-              }).catch(e => {
-                console.log('Error while trying to sign a message ', e)
-                reject(new Error(e && e.toString() || 'Unknown error'))
-              })
-            // This is necessary to avoid popup collision
-            // between the unlock & sign trezor popups
-            }, status === 'just unlocked' ? DELAY_BETWEEN_POPUPS : 0)
-          }).catch(e => {
-            console.log('Error while trying to sign a message ', e)
-            reject(new Error(e && e.toString() || 'Unknown error'))
-          })
+      this.unlock().then(() => {
+        const path= this._pathFromAddress (address) 
+        const transaction = {
+          to: this._normalize(tx.to),
+          value: this._normalize(tx.value),
+          data: this._normalize(tx.data),
+          chainId: tx._chainId,
+          nonce: this._normalize(tx.nonce),
+          gasLimit: this._normalize(tx.gasLimit),
+          gasPrice: this._normalize(tx.gasPrice),
+        }
+
+        this._sendMessage(
+          {
+            action: 'satochip-sign-transaction',
+            params: {
+              tx: transaction,
+              tx_info: {tx_serialized, tx_hash_true, tx_hash_false, chainId}, // debugsatochip
+              path
+            },
+          },
+          ({ success, payload }) => {
+            if (success) {
+              tx.s= Buffer.from(payload.s, 'hex')
+              tx.r= Buffer.from(payload.r, 'hex')
+              tx.v = payload.v
+              resolve(tx)
+            } else {
+              reject(new Error(payload.error || 'Satochip: Unknown error while signing transaction'))
+            }
+          }
+        )
+      }).catch(error => {
+        reject(error)
+      })
     })
   }
 
-  signTypedData (withAccount, typedData) {
-    // Waiting on trezor to enable this
+  signMessage(withAccount, data) {
+    console.warn('In eth-satochip-keyring: signMessage: START')
+    return this.signPersonalMessage(withAccount, data) // TODO: sign data without hashing?
+  }
+
+  // The message will be prefixed in the sdk
+  signPersonalMessage(withAccount, message) {
+    console.warn('In eth-satochip-keyring: signPersonalMessage: START')
+    console.warn('In eth-satochip-keyring: signPersonalMessage: withAccount: ', withAccount)
+    console.warn('In eth-satochip-keyring: signPersonalMessage: message: ', message)
+    return new Promise((resolve, reject) => {
+      this.unlock().then(() => {
+        const path= this._pathFromAddress(withAccount)
+        console.warn('In eth-satochip-keyring: signPersonalMessage: path: ', path)
+        const hash= this._hashPersonalMessage(message)
+        console.warn('In eth-satochip-keyring: signPersonalMessage: hash: ', hash)
+        this._sendMessage(
+          {
+            action: 'satochip-sign-personal-message',
+            params: {
+              path,
+              message,
+              hash
+            },
+          },
+          ({ success, payload }) => {
+            if (success) {
+              console.warn('In eth-satochip-keyring: signPersonalMessage: success: ', success)
+              console.warn('In eth-satochip-keyring: signPersonalMessage: payload: ', payload)
+              resolve(payload)
+            } else {
+              console.warn('In eth-satochip-keyring: signPersonalMessage: ERROR: ', payload.error) //TODO
+              reject(new Error(payload.error || 'Satochip: Uknown error while signing message'))
+            }
+          }
+        )
+      }).catch(error => reject(error))
+    })
+  }
+  
+  _hashPersonalMessage (message) {
+    // message is a hex-string prefixed with 0x
+    console.warn('In eth-satochip-keyring: _hashPersonalMessage: START')
+    const message_buffer = ethUtil.toBuffer(message);
+    const hash_buffer = ethUtil.hashPersonalMessage(message_buffer);
+    const hash_hex= hash_buffer.toString('hex');
+    console.warn('In eth-satochip-keyring: _hashPersonalMessage: hash_hex: ', hash_hex)
+    return hash_hex
+  }
+
+/*   signTypedData(withAccount, typedData) {
+    console.warn('In eth-satochip-keyring: signTypedData(): START')
+    return new Promise((resolve, reject) => {
+      this.unlock().then(() => {
+        const addrIndex = this._indexFromAddress(withAccount)
+        const publicKey = this._publicKeyFromIndex(addrIndex).toString('hex')
+        this._sendMessage(
+          {
+            action: 'satochip-sign-typed-data',
+            params: {
+              addrIndex,
+              typedData,
+              publicKey
+            },
+          },
+          ({ success, payload }) => {
+            if (success) {
+              resolve(payload)
+            } else {
+              reject(new Error(payload.error || 'Satochip: Uknown error while signing typed data'))
+            }
+          }
+        )
+      }).catch(error => reject(error))
+    })
+  } */
+
+
+  signTypedData () {
+    // TODO
     return Promise.reject(new Error('Not supported on this device'))
   }
 
-  exportAccount (address) {
-    return Promise.reject(new Error('Not supported on this device'))
+  exportAccount() {
+    console.warn('In eth-satochip-keyring: exportAccount(): START')
+    throw new Error('Not supported on this device')
   }
 
-  forgetDevice () {
+  forgetDevice() {
+    console.warn('In eth-satochip-keyring: forgetDevice(): START')
     this.accounts = []
-    this.hdk = new HDKey()
     this.page = 0
     this.unlockedAccount = 0
     this.paths = {}
+    this.hdk = new HDKey()
   }
 
   /* PRIVATE METHODS */
 
-  _normalize (buf) {
-    return ethUtil.bufferToHex(buf).toString()
+  _setupIframe() {
+    console.warn('In eth-satochip-keyring: _setupIframe: START')
+    this.iframe = document.createElement('iframe')
+    this.iframe.src = this.bridgeUrl
+    document.head.appendChild(this.iframe)
+    console.warn('In eth-satochip-keyring: _setupIframe: END')
   }
 
+  _sendMessage(msg, cb) {
+    console.warn('In eth-satochip-keyring: _sendMessage: START')
+    msg.target = 'SATOCHIP-IFRAME'
+    console.warn('In eth-satochip-keyring: _sendMessage: MSG:', msg)
+    
+    this.iframe.contentWindow.postMessage(msg, '*')
+    
+    window.addEventListener('message', ({ data }) => {
+      console.warn('In eth-satochip-keyring: _sendMessage: CALLBACK data:', data)
+      if (data && data.action && data.action === `${msg.action}-reply`) {
+        cb(data)
+      }
+    })
+    
+    console.warn('In eth-satochip-keyring: _sendMessage: END')
+  }
+ 
+   _normalize (buf) {
+    return ethUtil.bufferToHex(buf).toString()
+  }
+  
+/*   // cws only
+  // TODO: remove
+  _addressFromPublicKey(publicKey) {
+    console.warn('In eth-satochip-keyring: _addressFromPublicKey: START')
+    const address = ethUtil.pubToAddress(publicKey, true).toString('hex')
+    return ethUtil.toChecksumAddress(address)
+  } */
+
+  // trezor version
+  // eslint-disable-next-line no-shadow
   _addressFromIndex (pathBase, i) {
     const dkey = this.hdk.derive(`${pathBase}/${i}`)
     const address = ethUtil
       .publicToAddress(dkey.publicKey, true)
       .toString('hex')
-    return ethUtil.toChecksumAddress(address)
+    return ethUtil.toChecksumAddress(`0x${address}`)
   }
-
+  
+  // trezor only
   _pathFromAddress (address) {
     const checksummedAddress = ethUtil.toChecksumAddress(address)
     let index = this.paths[checksummedAddress]
@@ -289,7 +399,9 @@ class TrezorKeyring extends EventEmitter {
     }
     return `${this.hdPath}/${index}`
   }
+ 
 }
 
-TrezorKeyring.type = keyringType
-module.exports = TrezorKeyring
+SatochipKeyring.type = type
+module.exports = SatochipKeyring
+console.warn('In eth-satochip-keyring: END')
