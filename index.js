@@ -8,7 +8,6 @@ const pathBase = 'm'
 const BRIDGE_URL = 'https://toporin.github.io/Satochip-Connect/'
 //const BRIDGE_URL = 'http://localhost:3000'  //satochip-connect test server
 const MAX_INDEX = 1000
-const rlp = require('rlp')
 
 class SatochipKeyring extends EventEmitter {
   constructor(opts = {}) {
@@ -214,7 +213,7 @@ class SatochipKeyring extends EventEmitter {
             action: 'satochip-sign-transaction',
             params: {
               tx: transaction,
-              tx_info: {tx_serialized, tx_hash_true, tx_hash_false, chainId}, // debugsatochip
+              tx_info: {tx_serialized, tx_hash_true, tx_hash_false, chainId, address}, // debugsatochip
               path
             },
           },
