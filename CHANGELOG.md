@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## [0.3.0]
+
+Compatible with Metamask-Extension v10.14.7
+Compatible with Satochip-Connect v0.5.x
+
 ### Added
 Added support for EIP712 (signTypedData) and EIP1559.
 
