@@ -1,4 +1,4 @@
-eth-satochip-keyring 
+eth-satochip-keyring
 ==================
 
 An implementation of MetaMask's [Keyring interface](https://github.com/MetaMask/eth-simple-keyring#the-keyring-class-protocol), that uses a Satochip hardware
@@ -11,7 +11,7 @@ device. However there are a number of differences:
 - Because the keys are stored in the device, operations that rely on the device
   will fail if there is no Satochip device attached, or a different Satochip device
   is attached.
-- It does not support the `signTypedData` or `exportAccount`  methods.
+- It does not support the `exportAccount`  methods.
 
 Using
 -----
@@ -40,4 +40,3 @@ Testing: todo
 Attributions
 -------
 This code was inspired by [eth-ledger-keyring](https://github.com/jamespic/eth-ledger-keyring), [eth-hd-keyring](https://github.com/MetaMask/eth-hd-keyring), [eth-trezor-keyring](https://github.com/MetaMask/eth-trezor-keyring), and [eth-cws-keyring](https://github.com/antoncoding/eth-cws-keyring)
-
