@@ -6,8 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0]
+### Added
+Added support for EIP712 (signTypedData) and EIP1559.
+
+### Updated
+Updated ethereumjs-util to ^7.0.10 (support EIP1559)
+Updated @ethereumjs/tx" to ^3.2.1
+Updated metamask/eth-sig-util to 4.0.1
+
 ## [0.2.0]
-### Added 
+### Added
 Added support for Satochip-2FA by providing chainId and address data to the Satochip-Bridge
 
 

@@ -1,12 +1,15 @@
 const { EventEmitter } = require('events')
 const HDKey = require('hdkey')
 const ethUtil = require('ethereumjs-util')
-const EthereumTx = require('ethereumjs-tx')
+const sigUtil = require('eth-sig-util')
+const { TransactionFactory } = require('@ethereumjs/tx');
+//const EthereumTx = require('ethereumjs-tx')
+
 const type = 'Satochip'
 const hdPathString = `m/44'/60'/0'/0`
 const pathBase = 'm'
-const BRIDGE_URL = 'https://toporin.github.io/Satochip-Connect/'
-//const BRIDGE_URL = 'http://localhost:3000'  //satochip-connect test server
+const BRIDGE_URL = 'https://toporin.github.io/Satochip-Connect/v0.5'
+//const BRIDGE_URL = 'http://localhost:3000/v0.5'  //satochip-connect test server
 const MAX_INDEX = 1000
 
 class SatochipKeyring extends EventEmitter {
@@ -49,15 +52,6 @@ class SatochipKeyring extends EventEmitter {
     console.warn('In eth-satochip-keyring: deserialize(): END')
     return Promise.resolve()
   }
-  
-/*   // TODO merge with isUnlocked()
-  hasAccountKey() {
-    console.warn('In eth-satochip-keyring: hasAccountKey(): START')
-    const result = !!(this.hdk && this.hdk.publicKey)
-    console.warn('In eth-satochip-keyring: hasAccountKey: result:', result)
-    console.warn('In eth-satochip-keyring: hasAccountKey(): RETURN')
-    return result
-  } */
 
   setAccountToUnlock(index) {
     console.warn('In eth-satochip-keyring: setAccountToUnlock(): START')
@@ -72,9 +66,9 @@ class SatochipKeyring extends EventEmitter {
   unlock() {
     console.warn('In eth-satochip-keyring: unlock(): START')
     console.warn('In eth-satochip-keyring: unlock(): this.isUnlocked(): ', this.isUnlocked())
-    
+
     if (this.isUnlocked()) return Promise.resolve('already unlocked')
-    
+
     console.warn('In eth-satochip-keyring: unlock(): RETURN')
     // unlock: get publickey and chainCodes
     return new Promise((resolve, reject) => {
@@ -91,7 +85,7 @@ class SatochipKeyring extends EventEmitter {
             this.hdk.chainCode = Buffer.from(payload.parentChainCode, 'hex')
             //const address = this._addressFromPublicKey(Buffer.from(payload.parentPublicKey, 'hex'))
             //console.warn('In eth-satochip-keyring: unlock(): callback: address: ', address)
-            resolve("just unlocked") //resolve(address) 
+            resolve("just unlocked") //resolve(address)
           } else {
             reject(payload.error || 'Unknown error')
           }
@@ -100,7 +94,6 @@ class SatochipKeyring extends EventEmitter {
     })
   }
 
-  
   // trezor
   addAccounts (n = 1) {
     return new Promise((resolve, reject) => {
@@ -137,7 +130,7 @@ class SatochipKeyring extends EventEmitter {
   getPreviousPage() {
     return this.__getPage(-1)
   }
-  
+
   __getPage (increment) {
     this.page += increment
 
@@ -185,61 +178,146 @@ class SatochipKeyring extends EventEmitter {
     this.accounts = this.accounts.filter(a => a.toLowerCase() !== address.toLowerCase())
   }
 
-  // tx is an instance of the ethereumjs-transaction class.
-  signTransaction(address, tx) {
-    console.warn('In eth-satochip-keyring: signTransaction: START')
-    console.warn('In eth-satochip-keyring: signTransaction: tx: ', tx)
-    
-    const tx_serialized= tx.serialize().toString('hex')
-    const tx_hash_true= tx.hash(true).toString('hex') // legacy
-    const tx_hash_false= tx.hash(false).toString('hex') // EIP155
-    const chainId= tx._chainId
-    
-    return new Promise((resolve, reject) => {
-      this.unlock().then(() => {
-        const path= this._pathFromAddress (address) 
-        const transaction = {
-          to: this._normalize(tx.to),
-          value: this._normalize(tx.value),
-          data: this._normalize(tx.data),
-          chainId: tx._chainId,
-          nonce: this._normalize(tx.nonce),
-          gasLimit: this._normalize(tx.gasLimit),
-          gasPrice: this._normalize(tx.gasPrice),
-        }
 
-        this._sendMessage(
-          {
-            action: 'satochip-sign-transaction',
-            params: {
-              tx: transaction,
-              tx_info: {tx_serialized, tx_hash_true, tx_hash_false, chainId, address}, // debugsatochip
-              path
-            },
-          },
-          ({ success, payload }) => {
-            if (success) {
-              tx.s= Buffer.from(payload.s, 'hex')
-              tx.r= Buffer.from(payload.r, 'hex')
-              tx.v = payload.v
-              resolve(tx)
-            } else {
-              reject(new Error(payload.error || 'Satochip: Unknown error while signing transaction'))
-            }
-          }
-        )
-      }).catch(error => {
-        reject(error)
-      })
-    })
+  signTransaction(address, tx) {
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): START')
+      const path= this._pathFromAddress(address);
+      const txData = this._getTxReq(tx, address);
+      const chainId = this._getTxChainId(tx, address).toNumber();
+      txData.chainId = chainId;
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): txData=')
+      console.warn(txData)
+
+      // for legacy?
+      const tx_serialized= tx.serialize().toString('hex')
+      const tx_hash_true= tx.getMessageToSign(true).toString('hex') // for legacy (backward-compatibility )
+      const tx_hash_false= tx.getMessageToSign(true).toString('hex') // for legacy (backward-compatibility )
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): tx_serialized=')
+      console.warn(tx_serialized)
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): tx_hash_true=')
+      console.warn(tx_hash_true)
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): tx_hash_false=')
+      console.warn(tx_hash_false)
+
+      // get signature
+      return new Promise((resolve, reject) => {
+          this.unlock().then(() => {
+              console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): after unlock()')
+
+              this._sendMessage(
+                  {
+                    action: 'satochip-sign-transaction',
+                    params: {
+                        path,
+                        tx: txData,
+                        tx_info: {tx_serialized, tx_hash_true, tx_hash_false, chainId, address}, // legacy dataHex
+                    },
+                  },
+                  ({ success, payload }) => {
+                    if (success) {
+                        console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): SUCCES')
+                        console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): PAYLOAD=')
+                        console.warn(payload)
+
+                        // Pack the signature into the return object
+                        const txToReturn = tx.toJSON();
+                        txToReturn.type = tx._type || null;
+                        // EIP155 legacy TransactionUnsigned
+                        let v;
+                        if (txToReturn.type === 0 ||  txToReturn.type === null) {
+                            v= payload.v + 2*chainId + 35;
+                        } else {
+                            v= payload.v
+                        }
+                        txToReturn.s= Buffer.from(payload.s, 'hex')
+                        txToReturn.r= Buffer.from(payload.r, 'hex')
+                        txToReturn.v = v
+                        console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): txToReturn=')
+                        console.warn(txToReturn)
+                        const txSigned= TransactionFactory.fromTxData(txToReturn, {
+                            common: tx.common, freeze: Object.isFrozen(tx)
+                        })
+                        console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): txSigned=')
+                        console.warn(txSigned)
+                        const valid = txSigned.verifySignature()
+                        if (valid) {
+                            console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): SIGNATURE VALID!')
+                            resolve(txSigned)
+                        } else {
+                            console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): ERROR:')
+                            console.warn('Satochip: The transaction signature is not valid')
+                            reject(new Error('Satochip: The transaction signature is not valid'))
+                        }
+                    } else {
+                        console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): ERROR:')
+                        console.warn(payload.error || new Error('Satochip: Unknown error while signing transaction'))
+                        reject(payload.error || new Error('Satochip: Unknown error while signing transaction'))
+                    }
+
+                }) // end _sendMessage()
+            })
+            .catch(reject)
+        })
+  } // end signTransaction()
+
+  _getTxChainId(tx) {
+      console.warn('In eth-satochip-keyring: SatochipKeyring _getTxChainId(): START')
+      if (tx && tx.common && typeof tx.common.chainIdBN === 'function') {
+        return tx.common.chainIdBN();
+      } else if (tx && tx.chainId) {
+        return new BN(tx.chainId);
+      }
+      return new BN(1);
+  }
+
+  // The request data is built by this helper.
+  _getTxReq (tx, address) {
+    console.warn('In eth-satochip-keyring: SatochipKeyring _getTxReq(): START')
+    let txData;
+    try {
+      txData = {
+        from: address,
+        nonce: `0x${tx.nonce.toString('hex')}` || 0,
+        gasLimit: `0x${tx.gasLimit.toString('hex')}`,
+        to: !!tx.to ? tx.to.toString('hex') : null, // null for contract deployments
+        value: `0x${tx.value.toString('hex')}`,
+        data: `0x${tx.data.toString('hex')}`,
+        //data: tx.data.length === 0 ? null : `0x${tx.data.toString('hex')}`,
+      }
+      switch (tx._type) {
+        case 2: // eip1559
+          if ((tx.maxPriorityFeePerGas === null || tx.maxFeePerGas === null) ||
+            (tx.maxPriorityFeePerGas === undefined || tx.maxFeePerGas === undefined))
+            throw new Error('`maxPriorityFeePerGas` and `maxFeePerGas` must be included for EIP1559 transactions.');
+          txData.maxPriorityFeePerGas = `0x${tx.maxPriorityFeePerGas.toString('hex')}`;
+          txData.maxFeePerGas = `0x${tx.maxFeePerGas.toString('hex')}`;
+          txData.accessList = tx.accessList || [];
+          txData.type = 2;
+          break;
+        case 1: // eip2930
+          txData.accessList = tx.accessList || [];
+          txData.gasPrice = `0x${tx.gasPrice.toString('hex')}`;
+          txData.type = 1;
+          break;
+        default: // legacy
+          txData.gasPrice = `0x${tx.gasPrice.toString('hex')}`;
+          txData.type = null;
+          break;
+      }
+    } catch (err) {
+      throw new Error(`Failed to build transaction.`)
+    }
+    console.warn('In eth-satochip-keyring: SatochipKeyring _getTxReq(): txData=')
+    console.warn(txData)
+    return txData;
   }
 
   signMessage(withAccount, data) {
     console.warn('In eth-satochip-keyring: signMessage: START')
-    return this.signPersonalMessage(withAccount, data) // TODO: sign data without hashing?
+    return this.signPersonalMessage(withAccount, data)
   }
 
-  // The message will be prefixed in the sdk
+  // The message will be prefixed on the wallet side
   signPersonalMessage(withAccount, message) {
     console.warn('In eth-satochip-keyring: signPersonalMessage: START')
     console.warn('In eth-satochip-keyring: signPersonalMessage: withAccount: ', withAccount)
@@ -273,7 +351,7 @@ class SatochipKeyring extends EventEmitter {
       }).catch(error => reject(error))
     })
   }
-  
+
   _hashPersonalMessage (message) {
     // message is a hex-string prefixed with 0x
     console.warn('In eth-satochip-keyring: _hashPersonalMessage: START')
@@ -284,38 +362,74 @@ class SatochipKeyring extends EventEmitter {
     return hash_hex
   }
 
-/*   signTypedData(withAccount, typedData) {
-    console.warn('In eth-satochip-keyring: signTypedData(): START')
-    return new Promise((resolve, reject) => {
-      this.unlock().then(() => {
-        const addrIndex = this._indexFromAddress(withAccount)
-        const publicKey = this._publicKeyFromIndex(addrIndex).toString('hex')
-        this._sendMessage(
-          {
-            action: 'satochip-sign-typed-data',
-            params: {
-              addrIndex,
-              typedData,
-              publicKey
+  signTypedData(withAccount, typedData, options = {}) {
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTypedData(): START')
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTypedData(): typedData=')
+      console.warn(typedData)
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTypedData(): options=')
+      console.warn(options)
+      const isV4 = options.version === 'V4'
+      const isV3 = options.version === 'V3'
+      if (!isV4 && !isV3) {
+        throw new Error('Satochip: Only version 3 & 4 of typed data signing is supported')
+      }
+      const {
+            domain,
+            types,
+            primaryType,
+            message,
+      } = sigUtil.TypedDataUtils.sanitizeData(typedData)
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTypedData(): domain=')
+      console.warn(domain)
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTypedData(): types=')
+      console.warn(types)
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTypedData(): primaryType=')
+      console.warn(primaryType)
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTypedData(): primaryType=')
+      console.warn(message)
+      const domainSeparatorHex = sigUtil.TypedDataUtils.hashStruct('EIP712Domain', domain, types, isV4).toString('hex')
+      const hashStructMessageHex = sigUtil.TypedDataUtils.hashStruct(primaryType, message, types, isV4).toString('hex')
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTypedData(): domainSeparatorHex=')
+      console.warn(domainSeparatorHex)
+      console.warn('In eth-satochip-keyring: SatochipKeyring signTypedData(): hashStructMessageHex=')
+      console.warn(hashStructMessageHex)
+      return new Promise((resolve, reject) => {
+        this.unlock().then(() => {
+          //const addrIndex = this._indexFromAddress(withAccount)
+          const path= this._pathFromAddress(withAccount)
+          //const publicKey = this._publicKeyFromIndex(addrIndex).toString('hex')
+          this._sendMessage(
+            {
+              action: 'satochip-sign-typed-data',
+              params: {
+                path,
+                address: withAccount,
+                typedData,
+                domainSeparatorHex,
+                hashStructMessageHex
+              },
             },
-          },
-          ({ success, payload }) => {
-            if (success) {
-              resolve(payload)
-            } else {
-              reject(new Error(payload.error || 'Satochip: Uknown error while signing typed data'))
+            ({ success, payload }) => {
+              if (success) {
+                console.warn('In eth-satochip-keyring: SatochipKeyring signTypedData(): PAYLOAD=')
+                console.warn(payload)
+                resolve(payload)
+                // let v= payload.sig.substr(130,2);
+                // if (v==='1b'){
+                //     v= "00"
+                // } else {
+                //     v= "01"
+                // }
+                // const signature= payload.sig.substr(0,130) + v
+                // resolve(signature)
+              } else {
+                reject(new Error(payload.error || 'Satochip: unknown error while signing typed data'))
+              }
             }
-          }
-        )
-      }).catch(error => reject(error))
-    })
-  } */
-
-
-  signTypedData () {
-    // TODO
-    return Promise.reject(new Error('Not supported on this device'))
-  }
+          )
+        }).catch(error => reject(error))
+      })
+    }
 
   exportAccount() {
     console.warn('In eth-satochip-keyring: exportAccount(): START')
@@ -345,23 +459,23 @@ class SatochipKeyring extends EventEmitter {
     console.warn('In eth-satochip-keyring: _sendMessage: START')
     msg.target = 'SATOCHIP-IFRAME'
     console.warn('In eth-satochip-keyring: _sendMessage: MSG:', msg)
-    
+
     this.iframe.contentWindow.postMessage(msg, '*')
-    
+
     window.addEventListener('message', ({ data }) => {
       console.warn('In eth-satochip-keyring: _sendMessage: CALLBACK data:', data)
       if (data && data.action && data.action === `${msg.action}-reply`) {
         cb(data)
       }
     })
-    
+
     console.warn('In eth-satochip-keyring: _sendMessage: END')
   }
- 
+
    _normalize (buf) {
     return ethUtil.bufferToHex(buf).toString()
   }
-  
+
 /*   // cws only
   // TODO: remove
   _addressFromPublicKey(publicKey) {
@@ -379,7 +493,7 @@ class SatochipKeyring extends EventEmitter {
       .toString('hex')
     return ethUtil.toChecksumAddress(`0x${address}`)
   }
-  
+
   // trezor only
   _pathFromAddress (address) {
     const checksummedAddress = ethUtil.toChecksumAddress(address)
@@ -398,7 +512,7 @@ class SatochipKeyring extends EventEmitter {
     }
     return `${this.hdPath}/${index}`
   }
- 
+
 }
 
 SatochipKeyring.type = type
