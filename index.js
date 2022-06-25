@@ -8,8 +8,8 @@ const { TransactionFactory } = require('@ethereumjs/tx');
 const type = 'Satochip'
 const hdPathString = `m/44'/60'/0'/0`
 const pathBase = 'm'
-//const BRIDGE_URL = 'https://toporin.github.io/Satochip-Connect/v0.5'
-const BRIDGE_URL = 'http://localhost:3000/v0.5'  //satochip-connect test server
+const BRIDGE_URL = 'https://toporin.github.io/Satochip-Connect/v0.5'
+//const BRIDGE_URL = 'http://localhost:3000/v0.5'  //satochip-connect test server
 const MAX_INDEX = 1000
 
 class SatochipKeyring extends EventEmitter {
@@ -310,55 +310,6 @@ class SatochipKeyring extends EventEmitter {
     console.warn('In eth-satochip-keyring: SatochipKeyring _getTxReq(): txData=')
     console.warn(txData)
     return txData;
-  }
-
-  // tx is an instance of the ethereumjs-transaction class.
-  signTransactionOld(address, tx) {
-    console.warn('In eth-satochip-keyring: signTransaction: START')
-    console.warn('In eth-satochip-keyring: signTransaction: tx: ', tx)
-
-    const tx_serialized= tx.serialize().toString('hex')
-    const tx_hash_true= tx.hash(true).toString('hex') // legacy
-    const tx_hash_false= tx.hash(false).toString('hex') // EIP155
-    const chainId= tx._chainId
-
-    return new Promise((resolve, reject) => {
-      this.unlock().then(() => {
-        const path= this._pathFromAddress (address)
-        const transaction = {
-          to: this._normalize(tx.to),
-          value: this._normalize(tx.value),
-          data: this._normalize(tx.data),
-          chainId: tx._chainId,
-          nonce: this._normalize(tx.nonce),
-          gasLimit: this._normalize(tx.gasLimit),
-          gasPrice: this._normalize(tx.gasPrice),
-        }
-
-        this._sendMessage(
-          {
-            action: 'satochip-sign-transaction',
-            params: {
-              path,
-              tx: transaction,
-              tx_info: {tx_serialized, tx_hash_true, tx_hash_false, chainId, address}, // legacy
-            },
-          },
-          ({ success, payload }) => {
-            if (success) {
-              tx.s= Buffer.from(payload.s, 'hex')
-              tx.r= Buffer.from(payload.r, 'hex')
-              tx.v = payload.v
-              resolve(tx)
-            } else {
-              reject(new Error(payload.error || 'Satochip: Unknown error while signing transaction'))
-            }
-          }
-        )
-      }).catch(error => {
-        reject(error)
-      })
-    })
   }
 
   signMessage(withAccount, data) {
