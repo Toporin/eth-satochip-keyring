@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1]
+
+Compatible with Metamask-Extension v10.14.7
+Compatible with Satochip-Connect v0.5.x
+
+### Bug fix
+
+Null exception in serialize(): this.hdk.publicKey.toString('hex') when hdk or hdk.publicKey is null.
+
 ## [0.3.0]
 
 Compatible with Metamask-Extension v10.14.7

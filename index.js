@@ -31,12 +31,18 @@ class SatochipKeyring extends EventEmitter {
 
   serialize() {
     console.warn('In eth-satochip-keyring: serialize(): START')
+    let parentPublicKey= null;
+    let parentChainCode= null;
+    if (this.isUnlocked()){
+        parentPublicKey= this.hdk.publicKey.toString('hex')
+        parentChainCode= this.hdk.chainCode.toString('hex')
+    }
     return Promise.resolve({
       hdPath: this.hdPath,
       accounts: this.accounts,
       bridgeUrl: this.bridgeUrl,
-      parentPublicKey: this.hdk.publicKey.toString('hex'),
-      parentChainCode: this.hdk.chainCode.toString('hex'),
+      parentPublicKey: parentPublicKey,
+      parentChainCode: parentChainCode,
       page: this.page
     })
   }
@@ -189,7 +195,7 @@ class SatochipKeyring extends EventEmitter {
       console.warn(txData)
 
       // for legacy?
-      const tx_serialized= tx.serialize().toString('hex')
+      const tx_serialized= tx.serialize().toString('hex') // tx.getMessageToSign(false).toString('hex')
       const tx_hash_true= tx.getMessageToSign(true).toString('hex') // for legacy (backward-compatibility )
       const tx_hash_false= tx.getMessageToSign(true).toString('hex') // for legacy (backward-compatibility )
       console.warn('In eth-satochip-keyring: SatochipKeyring signTransaction(): tx_serialized=')
